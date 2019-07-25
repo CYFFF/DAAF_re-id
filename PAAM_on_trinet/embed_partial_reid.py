@@ -8,12 +8,11 @@ import h5py
 import json
 import numpy as np
 import tensorflow as tf
-import heatmap
 import loss
 
 from aggregators import AGGREGATORS
 import common
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 parser = ArgumentParser(description='Embed a dataset using a trained network.')
 
 # Required

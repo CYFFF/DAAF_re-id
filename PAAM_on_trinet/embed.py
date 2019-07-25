@@ -8,11 +8,15 @@ import h5py
 import json
 import numpy as np
 import tensorflow as tf
-import heatmap
+# import heatmap
 import loss
 
 from aggregators import AGGREGATORS
 import common
+
+import visiualization.attention_heatmap as VAC_vis
+import visiualization.alignment_heatmap as PAC_vis
+
 os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 parser = ArgumentParser(description='Embed a dataset using a trained network.')
 
@@ -214,7 +218,12 @@ def main():
         endpoints = head.head(endpoints, args.embedding_dim, is_training=False)
 
     dists = loss.cdist(endpoints['emb'], endpoints['emb'], metric=args.metric)
+
     tf.summary.histogram('embedding_dists', dists)
+
+    with tf.name_scope('visualization'):
+        last_featuremap = endpoints[args.model_name+'/block4']
+        mask_heatmap
 
     merged = tf.summary.merge_all()
     summary_writer = tf.summary.FileWriter(args.experiment_root)

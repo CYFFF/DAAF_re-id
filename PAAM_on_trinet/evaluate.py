@@ -15,7 +15,7 @@ import loss
 import embed_partial_reid
 
 #os.environ['CUDA_VISIBLE_DEVICES']='3'
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+os.environ["CUDA_VISIBLE_DEVICES"] = '2'
 
 parser = ArgumentParser(description='Evaluate a ReID embedding.')
 
@@ -66,11 +66,11 @@ def main():
     # query_pids, query_fids = common.load_dataset_query(args.query_dataset, args.image_root)
     # gallery_pids, gallery_fids = common.load_dataset_test(args.gallery_dataset, args.image_root)
 
-    # query_pids, query_fids = common.load_dataset(args.query_dataset, None)
-    # gallery_pids, gallery_fids = common.load_dataset(args.gallery_dataset, None)
+    query_pids, query_fids = common.load_dataset(args.query_dataset, None)
+    gallery_pids, gallery_fids = common.load_dataset(args.gallery_dataset, None)
 
-    query_pids, query_fids = embed_partial_reid.load_dataset_partial_reid(args.query_dataset, '/data1/chenyf/PartialREID/partial_body_images')
-    gallery_pids, gallery_fids = embed_partial_reid.load_dataset_partial_reid(args.gallery_dataset, '/data1/chenyf/PartialREID/whole_body_images')
+    # query_pids, query_fids = embed_partial_reid.load_dataset_partial_reid(args.query_dataset, '/data1/chenyf/PartialREID/partial_body_images')
+    # gallery_pids, gallery_fids = embed_partial_reid.load_dataset_partial_reid(args.gallery_dataset, '/data1/chenyf/PartialREID/whole_body_images')
 
 
     # Load the two datasets fully into memory.
@@ -122,8 +122,8 @@ def main():
             # be ignored for whatever reason (same camera, junk, ...) and
             # exclude those in a way that doesn't affect CMC and mAP.
             mask = excluder(fids)
-            # distances[mask] = np.inf
-            # pid_matches[mask] = False
+            distances[mask] = np.inf
+            pid_matches[mask] = False
 
             # Keep track of statistics. Invert distances to scores using any
             # arbitrary inversion, as long as it's monotonic and well-behaved,

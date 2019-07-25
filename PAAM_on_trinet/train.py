@@ -19,8 +19,8 @@ import lbtoolbox as lb
 import loss
 from nets import NET_CHOICES
 from heads import HEAD_CHOICES
-import heatmap
-import keypoints
+import attention_models.part_alignment_model as PAC
+import attention_models.visual_attention_model as VAC
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
@@ -230,13 +230,13 @@ def main():
         # heatmap_out_layer_0 = heatmap.hmnet_layer_0(resnet_block_4_out, 1)
         # heatmap_out_layer_0 = heatmap.hmnet_layer_0(resnet_block_3_4_out, 1)
         # heatmap_out_layer_0 = heatmap.hmnet_layer_0(resnet_block_2_3_4_out, 1)
-        heatmap_out_layer_0 = heatmap.hmnet_layer_0(heatmap_in[:, :, :, 1020:2048], 1)
-        heatmap_out_layer_1 = heatmap.hmnet_layer_1(heatmap_out_layer_0, 1)
-        heatmap_out_layer_2 = heatmap.hmnet_layer_2(heatmap_out_layer_1, 1)
-        heatmap_out_layer_3 = heatmap.hmnet_layer_3(heatmap_out_layer_2, 1)
-        heatmap_out_layer_4 = heatmap.hmnet_layer_4(heatmap_out_layer_3, 1)
+        heatmap_out_layer_0 = VAC.hmnet_layer_0(heatmap_in[:, :, :, 1020:2048], 1)
+        heatmap_out_layer_1 = VAC.hmnet_layer_1(heatmap_out_layer_0, 1)
+        heatmap_out_layer_2 = VAC.hmnet_layer_2(heatmap_out_layer_1, 1)
+        heatmap_out_layer_3 = VAC.hmnet_layer_3(heatmap_out_layer_2, 1)
+        heatmap_out_layer_4 = VAC.hmnet_layer_4(heatmap_out_layer_3, 1)
         heatmap_out = heatmap_out_layer_4
-        heatmap_loss = heatmap.loss_mutilayer(heatmap_out_layer_0, heatmap_out_layer_1, heatmap_out_layer_2,
+        heatmap_loss = VAC.loss_mutilayer(heatmap_out_layer_0, heatmap_out_layer_1, heatmap_out_layer_2,
                                               heatmap_out_layer_3, heatmap_out_layer_4, masks, net_input_size)
         # heatmap_loss = heatmap.loss(heatmap_out, labels, net_input_size)
         # heatmap_loss_mean = heatmap_loss
@@ -277,19 +277,19 @@ def main():
         keypoints_gt_4 = labels[:, :, :, 13:15]
         keypoints_gt_5 = labels[:, :, :, 15:17]
 
-        keypoints_pre_0 = keypoints.tran_conv_0(keypoints_pre_in, kp_num=5)
-        keypoints_pre_1 = keypoints.tran_conv_1(keypoints_pre_in, kp_num=2)
-        keypoints_pre_2 = keypoints.tran_conv_2(keypoints_pre_in, kp_num=2)
-        keypoints_pre_3 = keypoints.tran_conv_3(keypoints_pre_in, kp_num=4)
-        keypoints_pre_4 = keypoints.tran_conv_4(keypoints_pre_in, kp_num=2)
-        keypoints_pre_5 = keypoints.tran_conv_5(keypoints_pre_in, kp_num=2)
+        keypoints_pre_0 = PAC.tran_conv_0(keypoints_pre_in, kp_num=5)
+        keypoints_pre_1 = PAC.tran_conv_1(keypoints_pre_in, kp_num=2)
+        keypoints_pre_2 = PAC.tran_conv_2(keypoints_pre_in, kp_num=2)
+        keypoints_pre_3 = PAC.tran_conv_3(keypoints_pre_in, kp_num=4)
+        keypoints_pre_4 = PAC.tran_conv_4(keypoints_pre_in, kp_num=2)
+        keypoints_pre_5 = PAC.tran_conv_5(keypoints_pre_in, kp_num=2)
 
-        keypoints_loss_0 = keypoints.keypoints_loss(keypoints_pre_0, keypoints_gt_0)
-        keypoints_loss_1 = keypoints.keypoints_loss(keypoints_pre_1, keypoints_gt_1)
-        keypoints_loss_2 = keypoints.keypoints_loss(keypoints_pre_2, keypoints_gt_2)
-        keypoints_loss_3 = keypoints.keypoints_loss(keypoints_pre_3, keypoints_gt_3)
-        keypoints_loss_4 = keypoints.keypoints_loss(keypoints_pre_4, keypoints_gt_4)
-        keypoints_loss_5 = keypoints.keypoints_loss(keypoints_pre_5, keypoints_gt_5)
+        keypoints_loss_0 = PAC.keypoints_loss(keypoints_pre_0, keypoints_gt_0)
+        keypoints_loss_1 = PAC.keypoints_loss(keypoints_pre_1, keypoints_gt_1)
+        keypoints_loss_2 = PAC.keypoints_loss(keypoints_pre_2, keypoints_gt_2)
+        keypoints_loss_3 = PAC.keypoints_loss(keypoints_pre_3, keypoints_gt_3)
+        keypoints_loss_4 = PAC.keypoints_loss(keypoints_pre_4, keypoints_gt_4)
+        keypoints_loss_5 = PAC.keypoints_loss(keypoints_pre_5, keypoints_gt_5)
 
         keypoints_loss = 5/17*keypoints_loss_0 + 2/17*keypoints_loss_1 + 2/17*keypoints_loss_2 + 4/17*keypoints_loss_3 + 2/17*keypoints_loss_4 + 2/17*keypoints_loss_5
 
