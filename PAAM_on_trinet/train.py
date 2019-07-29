@@ -21,6 +21,7 @@ from nets import NET_CHOICES
 from heads import HEAD_CHOICES
 import attention_models.part_alignment_model as PAC
 import attention_models.visual_attention_model as VAC
+import configs.config as cfg
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
@@ -28,7 +29,6 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 def sample_k_fids_for_pid(pid, all_fids, all_pids, batch_k):
     """ Given a PID, select K FIDs of that specific PID. """
     possible_fids = tf.boolean_mask(all_fids, tf.equal(all_pids, pid))
-    # 第一个参数为带处理的数据，第二个参数为 mask, mask 为true时的值保留，其余的除去。用 mask 去匹配前K个维度
 
 
     # The following simply uses a subset of K of the possible FIDs
@@ -41,7 +41,6 @@ def sample_k_fids_for_pid(pid, all_fids, all_pids, batch_k):
 
     # Sampling is always performed by shuffling and taking the first k.
     shuffled = tf.random_shuffle(full_range)
-    # 沿着要被洗牌的张量的第一个维度，随机打乱
 
     selected_fids = tf.gather(possible_fids, shuffled[:batch_k])
 
@@ -49,13 +48,16 @@ def sample_k_fids_for_pid(pid, all_fids, all_pids, batch_k):
 
 
 def main():
-    args = parser.parse_args()
+    # args = parser.parse_args()
 
     # We store all arguments in a json file. This has two advantages:
     # 1. We can always get back and see what exactly that experiment was
     # 2. We can resume an experiment as-is without needing to remember all flags.
-    args_file = os.path.join(args.experiment_root, 'args.json')
-    if args.resume:
+
+    train_config = cfg.TrainConfig()
+
+    args_file = os.path.join(train_config.experiment_root, 'args.json')
+    if train_config.resume:
         if not os.path.isfile(args_file):
             raise IOError('`args.json` not found in {}'.format(args_file))
 
@@ -67,36 +69,35 @@ def main():
         # When resuming, we not only want to populate the args object with the
         # values from the file, but we also want to check for some possible
         # conflicts between loaded and given arguments.
-        for key, value in args.__dict__.items():
+        for key, value in train_config.__dict__.items():
             if key in args_resumed:
                 resumed_value = args_resumed[key]
                 if resumed_value != value:
                     print('Warning: For the argument `{}` we are using the'
                           ' loaded value `{}`. The provided value was `{}`'
                           '.'.format(key, resumed_value, value))
-                    args.__dict__[key] = resumed_value
+                    train_config.__dict__[key] = resumed_value
             else:
                 print('Warning: A new argument was added since the last run:'
                       ' `{}`. Using the new value: `{}`.'.format(key, value))
 
     else:
         # If the experiment directory exists already, we bail in fear.
-        if os.path.exists(args.experiment_root):
-            if os.listdir(args.experiment_root):
+        if os.path.exists(train_config.experiment_root):
+            if os.listdir(train_config.experiment_root):
                 print('The directory {} already exists and is not empty.'
                       ' If you want to resume training, append --resume to'
-                      ' your call.'.format(args.experiment_root))
+                      ' your call.'.format(train_config.experiment_root))
                 exit(1)
         else:
-            os.makedirs(args.experiment_root)
+            os.makedirs(train_config.experiment_root)
 
         # Store the passed arguments for later resuming and grepping in a nice
         # and readable format.
         with open(args_file, 'w') as f:
             json.dump(vars(args), f, ensure_ascii=False, indent=2, sort_keys=True)
-            # json.dump用于将dict类型的数据转成str类型
 
-    log_file = os.path.join(args.experiment_root, "train")
+    log_file = os.path.join(train_config.experiment_root, "train")
     logging.config.dictConfig(common.get_logging_dict(log_file))
     log = logging.getLogger('train')
 
@@ -106,40 +107,32 @@ def main():
         log.info('{}: {}'.format(key, value))
 
     # Check them here, so they are not required when --resume-ing.
-    if not args.train_set:
+    if not train_config.train_set:
         parser.print_help()
         log.error("You did not specify the `train_set` argument!")
         sys.exit(1)
-    if not args.image_root:
+    if not train_config.image_root:
         parser.print_help()
         log.error("You did not specify the required `image_root` argument!")
         sys.exit(1)
 
     # Load the data from the CSV file.
-    pids, fids = common.load_dataset(args.train_set, args.image_root, is_train=True)
+    pids, fids = common.load_dataset(train_config.train_set, train_config.image_root, is_train=True)
 
     max_fid_len = max(map(len, fids))  # We'll need this later for logfiles
-    # 值为31，即最大的字符串长度
-    # map接受一个函数和一个list，将函数作用于list的每一个元素上并返回一个list
-    # 返回 fid 中最长的字符串的长度
 
     # Setup a tf.Dataset where one "epoch" loops over all PIDS.
     # PIDS are shuffled after every epoch and continue indefinitely.
 
     unique_pids = np.unique(pids)
-    # 对于一维数组或者列表，unique函数去除其中重复的元素，并按元素由小到大返回一个新的无元素重复的元组或者列表
-    # 训练集中有741个人
 
     dataset = tf.data.Dataset.from_tensor_slices(unique_pids)
-    # 切分形状上的第一个维度，形成数据集
 
     dataset = dataset.shuffle(len(unique_pids))
-    # 对数据集进行打乱，参数为打乱时使用的 buffer 的大小
-
 
     # Constrain the dataset size to a multiple of the batch-size, so that
     # we don't get overlap at the end of each epoch.
-    dataset = dataset.take((len(unique_pids) // args.batch_p) * args.batch_p)
+    dataset = dataset.take((len(unique_pids) // train_config.batch_p) * train_config.batch_p)
     # take(count)  Creates a Dataset with at most count elements from this dataset.
 
     dataset = dataset.repeat(None)  # Repeat forever. Funny way of stating it.
@@ -147,8 +140,7 @@ def main():
 
     # For every PID, get K images.
     dataset = dataset.map(lambda pid: sample_k_fids_for_pid(
-        pid, all_fids=fids, all_pids=pids, batch_k=args.batch_k))
-    # map接收一个函数，Dataset中的每个元素都会被当作这个函数的输入，并将函数返回值作为新的 Dataset
+        pid, all_fids=fids, all_pids=pids, batch_k=train_config.batch_k))
 
     # Ungroup/flatten the batches for easy loading of the files.
     dataset = dataset.apply(tf.contrib.data.unbatch())
@@ -157,34 +149,31 @@ def main():
 
 
     # Convert filenames to actual image tensors.
-    net_input_size = (args.net_input_height, args.net_input_width)
+    net_input_size = (train_config.net_input_height, train_config.net_input_width)
     # 256，128
-    pre_crop_size = (args.pre_crop_height, args.pre_crop_width)
+    pre_crop_size = (train_config.pre_crop_height, train_config.pre_crop_width)
     # 288，144
     
     dataset = dataset.map(
         lambda fid, pid: common.fid_to_image_label(
-            fid, pid, image_root=args.image_root,
-            image_size=pre_crop_size if args.crop_augment else net_input_size),
-        num_parallel_calls=args.loading_threads)
+            fid, pid, image_root=train_config.image_root,
+            image_size=pre_crop_size if train_config.crop_augment else net_input_size),
+        num_parallel_calls=train_config.loading_threads)
 
-
-    # merge
 ###########################################################################################
     dataset = dataset.map(
         lambda im, keypt, mask, fid, pid: (tf.concat([im, keypt, mask], 2), fid, pid))
 
-    # 将图片和热度图一一对应
 ###########################################################################################
     
     # Augment the data if specified by the arguments.
-    if args.flip_augment:
+    if train_config.flip_augment:
         dataset = dataset.map(
             lambda im, fid, pid: (tf.image.random_flip_left_right(im), fid, pid))
 
 
     # net_input_size_aug = net_input_size + (4,)
-    if args.crop_augment:
+    if train_config.crop_augment:
         dataset = dataset.map(
             lambda im, fid, pid: (tf.random_crop(im, net_input_size + (21,)), fid, pid))
     # net_input_size + (21,) = (256, 128, 21)
@@ -193,12 +182,11 @@ def main():
 #############################################################################################
     dataset = dataset.map(
         lambda im, fid, pid: (common.split(im, fid, pid)))
-    # 将热度图和训练图片分开
 
 #############################################################################################
 
     # Group it back into PK batches.
-    batch_size = args.batch_p * args.batch_k
+    batch_size = train_config.batch_p * train_config.batch_k
     dataset = dataset.batch(batch_size)
 
     # Overlap producing and consuming for parallelism.
@@ -208,19 +196,17 @@ def main():
     # Since we repeat the data infinitely, we only need a one-shot iterator.
     images, keypts, masks, fids, pids = dataset.make_one_shot_iterator().get_next()
     # tf.summary.image('image',images,10)
-    # 创建一个迭代器遍历数据集中的所有元素
 
     # Create the model and an embedding head.
-    model = import_module('nets.' + args.model_name)
-    head = import_module('heads.' + args.head_name)
-    # 加载模型，结构是预先定义好的，如 resnet50
+    model = import_module('nets.' + train_config.model_name)
+    head = import_module('heads.' + train_config.head_name)
 
     # Feed the image through the model. The returned `body_prefix` will be used
     # further down to load the pre-trained weights for all variables with this
     # prefix.
 
     endpoints, body_prefix = model.endpoints(images, is_training=True)
-    heatmap_in = endpoints[args.model_name + '/block4']
+    heatmap_in = endpoints[train_config.model_name + '/block4']
     # resnet_block_4_out = heatmap.resnet_block_4(heatmap_in)
     # resnet_block_3_4_out = heatmap.resnet_block_3_4(heatmap_in)
     # resnet_block_2_3_4_out = heatmap.resnet_block_2_3_4(heatmap_in)
@@ -246,13 +232,13 @@ def main():
         # heatmap_resize = tf.image.resize_images(tf.expand_dims(heatmap_sum, axis=3), [8, 4])
         # featuremap_tmp = tf.multiply(heatmap_resize, endpoints[args.model_name + '/block4'])
         # endpoints[args.model_name + '/block4'] = featuremap_tmp
-        endpoints = head.head(endpoints, args.embedding_dim, is_training=True)
+        endpoints = head.head(endpoints, train_config.embedding_dim, is_training=True)
 
-        tf.summary.image('feature_map', tf.expand_dims(endpoints[args.model_name + '/block4'][:, :, :, 0], axis=3), 4)
+        tf.summary.image('feature_map', tf.expand_dims(endpoints[train_config.model_name + '/block4'][:, :, :, 0], axis=3), 4)
 
 
     with tf.name_scope('keypoints_pre'):
-        keypoints_pre_in = endpoints[args.model_name + '/block4']
+        keypoints_pre_in = endpoints[train_config.model_name + '/block4']
         # keypoints_pre_in_0 = keypoints_pre_in[:, :, :, 0:256]
         # keypoints_pre_in_1 = keypoints_pre_in[:, :, :, 256:512]
         # keypoints_pre_in_2 = keypoints_pre_in[:, :, :, 512:768]
@@ -297,9 +283,9 @@ def main():
     # Create the loss in two steps:
     # 1. Compute all pairwise distances according to the specified metric.
     # 2. For each anchor along the first dimension, compute its loss.
-    dists = loss.cdist(endpoints['emb'], endpoints['emb'], metric=args.metric)
-    losses, train_top1, prec_at_k, _, neg_dists, pos_dists = loss.LOSS_CHOICES[args.loss](
-        dists, pids, args.margin, batch_precision_at_k=args.batch_k-1)
+    dists = loss.cdist(endpoints['emb'], endpoints['emb'], metric=train_config.metric)
+    losses, train_top1, prec_at_k, _, neg_dists, pos_dists = loss.LOSS_CHOICES[train_config.loss](
+        dists, pids, train_config.margin, batch_precision_at_k=train_config.batch_k-1)
 
     # Count the number of active entries, and compute the total batch loss.
     num_active = tf.reduce_sum(tf.cast(tf.greater(losses, 1e-5), tf.float32))
@@ -337,14 +323,14 @@ def main():
     # inspection and actually discards data in histogram summaries.
     if args.detailed_logs:
         log_embs = lb.create_or_resize_dat(
-            os.path.join(args.experiment_root, 'embeddings'),
-            dtype=np.float32, shape=(args.train_iterations, batch_size, args.embedding_dim))
+            os.path.join(train_config.experiment_root, 'embeddings'),
+            dtype=np.float32, shape=(train_config.train_iterations, batch_size, args.embedding_dim))
         log_loss = lb.create_or_resize_dat(
-            os.path.join(args.experiment_root, 'losses'),
-            dtype=np.float32, shape=(args.train_iterations, batch_size))
+            os.path.join(train_config.experiment_root, 'losses'),
+            dtype=np.float32, shape=(train_config.train_iterations, batch_size))
         log_fids = lb.create_or_resize_dat(
-            os.path.join(args.experiment_root, 'fids'),
-            dtype='S' + str(max_fid_len), shape=(args.train_iterations, batch_size))
+            os.path.join(train_config.experiment_root, 'fids'),
+            dtype='S' + str(max_fid_len), shape=(train_config.train_iterations, batch_size))
 
     # These are collected here before we add the optimizer, because depending
     # on the optimizer, it might add extra slots, which are also global
@@ -355,13 +341,13 @@ def main():
     # Define the optimizer and the learning-rate schedule.
     # Unfortunately, we get NaNs if we don't handle no-decay separately.
     global_step = tf.Variable(0, name='global_step', trainable=False)
-    if 0 <= args.decay_start_iteration < args.train_iterations:
+    if 0 <= train_config.decay_start_iteration < train_config.train_iterations:
         learning_rate = tf.train.exponential_decay(
-            args.learning_rate,
-            tf.maximum(0, global_step - args.decay_start_iteration),
-            args.train_iterations - args.decay_start_iteration, 0.001)
+            train_config.learning_rate,
+            tf.maximum(0, global_step - train_config.decay_start_iteration),
+            train_config.train_iterations - train_config.decay_start_iteration, 0.001)
     else:
-        learning_rate = args.learning_rate
+        learning_rate = train_config.learning_rate
     tf.summary.scalar('learning_rate', learning_rate)
     optimizer = tf.train.AdamOptimizer(learning_rate)
     # Feel free to try others!
@@ -380,7 +366,7 @@ def main():
 
     gpu_options = tf.GPUOptions(allow_growth=True)
     with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
-        if args.resume:
+        if train_config.resume:
             # In case we're resuming, simply load the full checkpoint to init.
             last_checkpoint = tf.train.latest_checkpoint(args.experiment_root)
             log.info('Restoring from checkpoint: {}'.format(last_checkpoint))
@@ -389,10 +375,10 @@ def main():
             # But if we're starting from scratch, we may need to load some
             # variables from the pre-trained weights, and random init others.
             sess.run(tf.global_variables_initializer())
-            if args.initial_checkpoint is not None:
+            if train_config.initial_checkpoint is not None:
                 saver = tf.train.Saver(model_variables, write_version=tf.train.SaverDef.V1)
                 
-                saver.restore(sess, args.initial_checkpoint)
+                saver.restore(sess, train_config.initial_checkpoint)
 
                 # name_11 = 'resnet_v1_50/block4'
                 # name_12 = 'resnet_v1_50/block3'
@@ -420,10 +406,10 @@ def main():
             # In any case, we also store this initialization as a checkpoint,
             # such that we could run exactly reproduceable experiments.
             checkpoint_saver.save(sess, os.path.join(
-                args.experiment_root, 'checkpoint'), global_step=0)
+                train_config.experiment_root, 'checkpoint'), global_step=0)
 
         merged_summary = tf.summary.merge_all()
-        summary_writer = tf.summary.FileWriter(args.experiment_root, sess.graph)
+        summary_writer = tf.summary.FileWriter(train_config.experiment_root, sess.graph)
 
         start_step = sess.run(global_step)
         log.info('Starting training from iteration {}.'.format(start_step))
@@ -432,7 +418,7 @@ def main():
         # utility such that an iteration still finishes on Ctrl+C and we can
         # stop the training cleanly.
         with lb.Uninterrupt(sigs=[SIGINT, SIGTERM], verbose=True) as u:
-            for i in range(start_step, args.train_iterations):
+            for i in range(start_step, train_config.train_iterations):
 
                 # Compute gradients, update weights, store logs!
                 start_time = time.time()
@@ -448,28 +434,28 @@ def main():
                 summary_writer.add_summary(summary2, step)
                 summary_writer.add_summary(summary, step)
 
-                if args.detailed_logs:
+                if train_config.detailed_logs:
                     log_embs[i], log_loss[i], log_fids[i] = b_embs, b_loss, b_fids
 
                 # Do a huge print out of the current progress.
-                seconds_todo = (args.train_iterations - step) * elapsed_time
+                seconds_todo = (train_config.train_iterations - step) * elapsed_time
                 log.info('iter:{:6d}, loss min|avg|max: {:.3f}|{:.3f}|{:6.3f}, '
                          'batch-p@{}: {:.2%}, ETA: {} ({:.2f}s/it)'.format(
                              step,
                              float(np.min(b_loss)),
                              float(np.mean(b_loss)),
                              float(np.max(b_loss)),
-                             args.batch_k-1, float(b_prec_at_k),
+                             train_config.batch_k-1, float(b_prec_at_k),
                              timedelta(seconds=int(seconds_todo)),
                              elapsed_time))
                 sys.stdout.flush()
                 sys.stderr.flush()
 
                 # Save a checkpoint of training every so often.
-                if (args.checkpoint_frequency > 0 and
-                        step % args.checkpoint_frequency == 0):
+                if (train_config.checkpoint_frequency > 0 and
+                        step % train_config.checkpoint_frequency == 0):
                     checkpoint_saver.save(sess, os.path.join(
-                        args.experiment_root, 'checkpoint'), global_step=step)
+                        train_config.experiment_root, 'checkpoint'), global_step=step)
 
                 # Stop the main-loop at the end of the step, if requested.
                 if u.interrupted:
@@ -480,128 +466,8 @@ def main():
         # in case intermediate storing was disabled and it saves a checkpoint
         # when the process was interrupted.
         checkpoint_saver.save(sess, os.path.join(
-            args.experiment_root, 'checkpoint'), global_step=step)
+            train_config.experiment_root, 'checkpoint'), global_step=step)
 
 
 if __name__ == '__main__':
-    parser = ArgumentParser(description='Train a ReID network.')
-
-    # Required.
-
-    parser.add_argument(
-        '--experiment_root', required=True, type=common.writeable_directory,
-        help='Location used to store checkpoints and dumped data.')
-
-    parser.add_argument(
-        '--train_set',
-        help='Path to the train_set csv file.')
-
-    parser.add_argument(
-        '--image_root', type=common.readable_directory,
-        help='Path that will be pre-pended to the filenames in the train_set csv.')
-
-    # Optional with sane defaults.
-
-    parser.add_argument(
-        '--resume', action='store_true', default=False,
-        help='When this flag is provided, all other arguments apart from the '
-             'experiment_root are ignored and a previously saved set of arguments '
-             'is loaded.')
-
-    parser.add_argument(
-        '--model_name', default='resnet_v1_50', choices=NET_CHOICES,
-        help='Name of the model to use.')
-
-    parser.add_argument(
-        '--head_name', default='fc1024', choices=HEAD_CHOICES,
-        help='Name of the head to use.')
-
-    parser.add_argument(
-        '--embedding_dim', default=128, type=common.positive_int,
-        help='Dimensionality of the embedding space.')
-
-    parser.add_argument(
-        '--initial_checkpoint', default=None,
-        help='Path to the checkpoint file of the pretrained network.')
-
-    # TODO move these defaults to the .sh script?
-    parser.add_argument(
-        '--batch_p', default=16, type=common.positive_int,
-        help='The number P used in the PK-batches')
-
-    parser.add_argument(
-        '--batch_k', default=4, type=common.positive_int,
-        help='The numberK used in the PK-batches')
-
-    parser.add_argument(
-        '--net_input_height', default=256, type=common.positive_int,
-        help='Height of the input directly fed into the network.')
-
-    parser.add_argument(
-        '--net_input_width', default=128, type=common.positive_int,
-        help='Width of the input directly fed into the network.')
-
-    parser.add_argument(
-        '--pre_crop_height', default=288, type=common.positive_int,
-        help='Height used to resize a loaded image. This is ignored when no crop '
-             'augmentation is applied.')
-
-    parser.add_argument(
-        '--pre_crop_width', default=144, type=common.positive_int,
-        help='Width used to resize a loaded image. This is ignored when no crop '
-             'augmentation is applied.')
-    # TODO end
-
-    parser.add_argument(
-        '--loading_threads', default=16, type=common.positive_int,
-        help='Number of threads used for parallel loading.')
-
-    parser.add_argument(
-        '--margin', default='soft', type=common.float_or_string,
-        help='What margin to use: a float value for hard-margin, "soft" for '
-             'soft-margin, or no margin if "none".')
-
-    parser.add_argument(
-        '--metric', default='euclidean', choices=loss.cdist.supported_metrics,
-        help='Which metric to use for the distance between embeddings.')
-
-    parser.add_argument(
-        '--loss', default='batch_hard', choices=loss.LOSS_CHOICES.keys(),
-        help='Enable the super-mega-advanced top-secret sampling stabilizer.')
-
-    parser.add_argument(
-        '--learning_rate', default=1e-4, type=common.positive_float,
-        help='The initial value of the learning-rate, before it kicks in.')
-
-    parser.add_argument(
-        '--train_iterations', default=80000, type=common.positive_int,
-        help='Number of training iterations.')
-
-    parser.add_argument(
-        '--decay_start_iteration', default=15000, type=int,
-        help='At which iteration the learning-rate decay should kick-in.'
-             'Set to -1 to disable decay completely.')
-
-    parser.add_argument(
-        '--checkpoint_frequency', default=10000, type=common.nonnegative_int,
-        help='After how many iterations a checkpoint is stored. Set this to 0 to '
-             'disable intermediate storing. This will result in only one final '
-             'checkpoint.')
-
-    parser.add_argument(
-        '--flip_augment', action='store_true', default=False,
-        help='When this flag is provided, flip augmentation is performed.')
-
-    parser.add_argument(
-        '--crop_augment', action='store_true', default=False,
-        help='When this flag is provided, crop augmentation is performed. Based on'
-             'The `crop_height` and `crop_width` parameters. Changing this flag '
-             'thus likely changes the network input size!')
-
-    parser.add_argument(
-        '--detailed_logs', action='store_true', default=False,
-        help='Store very detailed logs of the training in addition to TensorBoard'
-             ' summaries. These are mem-mapped numpy files containing the'
-             ' embeddings, losses and FIDs seen in each batch during training.'
-             ' Everything can be re-constructed and analyzed that way.')
     main()

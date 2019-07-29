@@ -128,6 +128,7 @@ def main():
         if (args_resumed['crop_augment']) == (args.crop_augment is None):
             print('WARNING: crop augmentation differs between training and '
                   'evaluation.')
+
         args.image_root = args.image_root or args_resumed['image_root']
     else:
         raise IOError('`args.json` could not be found in: {}'.format(args_file))
@@ -220,10 +221,6 @@ def main():
     dists = loss.cdist(endpoints['emb'], endpoints['emb'], metric=args.metric)
 
     tf.summary.histogram('embedding_dists', dists)
-
-    with tf.name_scope('visualization'):
-        last_featuremap = endpoints[args.model_name+'/block4']
-        mask_heatmap
 
     merged = tf.summary.merge_all()
     summary_writer = tf.summary.FileWriter(args.experiment_root)
