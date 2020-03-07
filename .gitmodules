@@ -1,0 +1,3 @@
+[submodule "DAAF-BoT"]
+	path = DAAF-BoT
+	url = https://github.com/CYFFF/DAAF-BoT
