@@ -6,7 +6,7 @@ We have tested the performance of our method on two typical networks: [TriNet](h
 
 
 | Method        | Market-1501      |  CUHK-03(labeled) | CUHK-03(Detected) | Duke-MTMC        |
-| ------------ | ------------------------- | ------------------------- | --- | --- | --- |
+| ------------- | ---------------- | ----------------- | ----------------- | ---------------- |
 | [TriNet](https://github.com/VisualComputingInstitute/triplet-reid)       | 65.48 ( 82.51 )  | 46.39 ( 51.07 )  | 46.74 ( 51.93 ) | 53.50 ( 72.44 ) |
 | [DAAF-TriNet](https://github.com/CYFFF/DAAF_re-id/tree/master/DAAF-Trinet)   | 70.40 ( 85.87 )  | 53.21 ( 58.23 )  | 51.98 ( 57.03 )  | 58.91 ( 76.63 )  |
 | TriNet*        | 69.14 ( 84.92 )  | 54.45 ( 55.86 )  | 51.98 ( 52.64 )  | 58.18 ( 75.36 )  |
