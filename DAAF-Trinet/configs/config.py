@@ -4,16 +4,21 @@ class TrainConfig:
         '''
         
         '''
-        self.experiment_root = '/data1/chenyf/experiments/exp_150'
-        self.image_root = '/data1/chenyf/datasets/Market-1501'
+        self.experiment_root = '/data/chenyifan/experiments/exp_attr_group_17_1'
+        self.image_root = '/data/chenyifan/Market-1501'
+        self.train_set = 'data/market1501_train.csv'
 
+        self.crop_augment = False
+        self.flip_augment = False
+        self.crop_augment = False
         self.five_crops_and_flip = False
         self.resume = False
         self.model_name = 'resnet_v1_50'
         self.head_name = 'fc1024'
         self.embedding_dim = 128
-        self.initial_checkpoint = None
+        self.initial_checkpoint = 'ckpt/resnet_v1_50.ckpt'
 
+        self.detailed_logs = False
         self.batch_p = 16
         self.batch_k = 4
         self.net_input_height = 256
@@ -25,7 +30,7 @@ class TrainConfig:
         self.metric = 'euclidean'
         self.loss = 'batch_hard'
         self.learning_rate = 1e-4
-        self.train_iterations = 80000
+        self.train_iterations = 80001
         self.decay_start_iteration = 15000
         self.checkpoint_frequency = 10000
         self.detailed_logs = False
@@ -37,8 +42,8 @@ class EmbedConfig:
         '''
 
         '''
-        self.experiment_root = '/data1/chenyf/experiments/exp_150'
-        self.image_root = '/data1/chenyf/datasets/Market-1501'
+        self.experiment_root = '/data/chenyifan/experiments/exp_re3'
+        self.image_root = '/data/chenyifan/Market-1501'
 
         self.five_crops_and_flip = False
         self.resume = False
@@ -70,8 +75,8 @@ class EvaluateConfig:
         '''
 
         '''
-        self.experiment_root = '/data1/chenyf/experiments/exp_150'
-        self.image_root = '/data1/chenyf/datasets/Market-1501'
+        self.experiment_root = '/data/chenyifan/experiments/exp_re3'
+        self.image_root = '/data/chenyifan/Market-1501'
 
         self.five_crops_and_flip = False
         self.resume = False

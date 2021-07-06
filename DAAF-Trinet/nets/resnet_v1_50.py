@@ -1,4 +1,6 @@
-import tensorflow as tf
+# import tensorflow as tf
+import tensorflow.compat.v1 as tf
+import  tf_slim as slim
 
 from nets.resnet_v1 import resnet_v1_50, resnet_arg_scope
 
@@ -10,7 +12,7 @@ def endpoints(image, is_training):
 
     image = image - tf.constant(_RGB_MEAN, dtype=tf.float32, shape=(1,1,1,3))
 
-    with tf.contrib.slim.arg_scope(resnet_arg_scope(batch_norm_decay=0.9, weight_decay=0.0)):
+    with slim.arg_scope(resnet_arg_scope(batch_norm_decay=0.9, weight_decay=0.0)):
         _, endpoints = resnet_v1_50(image, num_classes=None, is_training=is_training, global_pool=True)
 
     endpoints['model_output'] = endpoints['global_pool'] = tf.reduce_mean(

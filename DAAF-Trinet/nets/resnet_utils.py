@@ -38,9 +38,10 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
-import tensorflow as tf
+# import tensorflow as tf
+import tensorflow.compat.v1 as tf
 
-slim = tf.contrib.slim
+import tf_slim as slim
 
 
 class Block(collections.namedtuple('Block', ['scope', 'unit_fn', 'args'])):

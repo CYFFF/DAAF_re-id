@@ -8,14 +8,15 @@ import h5py
 import json
 import numpy as np
 from sklearn.metrics import average_precision_score
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.compat.v1.disable_eager_execution()
 
 import common
 import loss
 import embed_partial_reid
 
 #os.environ['CUDA_VISIBLE_DEVICES']='3'
-os.environ["CUDA_VISIBLE_DEVICES"] = '2'
+os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
 parser = ArgumentParser(description='Evaluate a ReID embedding.')
 

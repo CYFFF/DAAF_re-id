@@ -7,7 +7,8 @@ import os
 import h5py
 import json
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.disable_eager_execution()
 # import heatmap
 import loss
 
@@ -17,7 +18,7 @@ import common
 import visiualization.attention_heatmap as VAC_vis
 import visiualization.alignment_heatmap as PAC_vis
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 parser = ArgumentParser(description='Embed a dataset using a trained network.')
 
 # Required
@@ -151,7 +152,8 @@ def main():
             print('{}: {}'.format(key, value))
 
     # Load the data from the CSV file.
-    _, data_fids = common.load_dataset_test(args.dataset, args.image_root)
+    # _, data_fids = common.load_dataset_test(args.dataset, args.image_root)
+    _, data_fids = common.load_dataset_query(args.dataset, args.image_root)
 
     net_input_size = (args.net_input_height, args.net_input_width)
     pre_crop_size = (args.pre_crop_height, args.pre_crop_width)
@@ -172,7 +174,7 @@ def main():
     modifiers = ['original']
     if args.flip_augment:
         dataset = dataset.map(flip_augment)
-        dataset = dataset.apply(tf.contrib.data.unbatch())
+        dataset = dataset.apply(tf.data.unbatch())
         modifiers = [o + m for m in ['', '_flip'] for o in modifiers]
 
     if args.crop_augment == 'center':
@@ -199,7 +201,7 @@ def main():
     dataset = dataset.prefetch(1)
 
     images, _, _ = dataset.make_one_shot_iterator().get_next()
-    tf.summary.image('image', images, 12)
+    # tf.summary.image('image', images, 12)
 
     # Create the model and an embedding head.
     model = import_module('nets.' + args.model_name)

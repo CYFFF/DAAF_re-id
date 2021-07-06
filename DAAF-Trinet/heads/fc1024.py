@@ -1,5 +1,6 @@
-import tensorflow as tf
-from tensorflow.contrib import slim
+import tensorflow.compat.v1 as tf
+import tensorflow as tf_v2
+import  tf_slim as slim
 
 def head(endpoints, embedding_dim, is_training):
     endpoints['head_output'] = slim.fully_connected(

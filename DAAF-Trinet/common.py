@@ -5,7 +5,10 @@ import logging
 import os
 
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.disable_eager_execution()
+tf.disable_v2_behavior()
+import tensorflow as tf_v2
 from six.moves import cPickle
 
 # Commandline argument parsing
@@ -283,8 +286,8 @@ def fid_to_image(fid, pid, image_root, image_size):
     # decode_jpeg or decode_png, each of which can decode both.
     # Sounds ridiculous, but is true:
     # https://github.com/tensorflow/tensorflow/issues/9356#issuecomment-309144064
-    image_decoded = tf.image.decode_jpeg(image_encoded, channels=3)
-    image_resized = tf.image.resize_images(image_decoded, image_size)
+    image_decoded = tf_v2.image.decode_jpeg(image_encoded, channels=3)
+    image_resized = tf_v2.image.resize(image_decoded, image_size)
 
     return image_resized, fid, pid
 
@@ -292,7 +295,7 @@ def fid_to_image_label(fid, pid, image_root, image_size):
     """ Loads and resizes an image given by FID. Pass-through the PID. """
     # Since there is no symbolic path.join, we just add a '/' to be sure.
 
-    image_encoded = tf.read_file(tf.reduce_join([image_root, '/', fid]))
+    image_encoded = tf.io.read_file(tf.reduce_join([image_root, '/', fid]))
     #image_encoded = tf.read_file(tf.reduce_join([image_root, '/', fid]))
 
     # tf.image.decode_image doesn't set the shape, not even the dimensionality,
@@ -300,30 +303,60 @@ def fid_to_image_label(fid, pid, image_root, image_size):
     # decode_jpeg or decode_png, each of which can decode both.
     # Sounds ridiculous, but is true:
     # https://github.com/tensorflow/tensorflow/issues/9356#issuecomment-309144064
-    image_decoded = tf.image.decode_jpeg(image_encoded, channels=3)
-    image_resized = tf.image.resize_images(image_decoded, image_size)
+    image_decoded = tf_v2.image.decode_jpeg(image_encoded, channels=3)
+    image_resized = tf_v2.image.resize(image_decoded, image_size)
 
-    keypt_root = '/data1/chenyf/cuhk03-np-keypoints/labeled/'
-    # keypt_root = '/data1/chenyf/Market_cpn_keypoints/'
-    temp = tf.strings.regex_replace(fid,'.png','')
-    # temp = tf.strings.regex_replace(temp,'bounding_box_train', 'bounding_box_train_256')
+    # keypt_root = '/data1/chenyf/cuhk03-np-keypoints/labeled/'
+    keypt_root = '/data/chenyifan/Market_cpn_keypoints/'
+    temp = tf_v2.strings.regex_replace(fid,'.jpg','')
+    temp = tf_v2.strings.regex_replace(temp,'bounding_box_train', 'bounding_box_train_256')
 
     for i in range(17):
-        keypt_encoded_temp = tf.read_file(tf.reduce_join([keypt_root, temp, '_' + '%02d' % (i) + '.png']))
-        keypt_decoded_temp = tf.image.decode_jpeg(keypt_encoded_temp, channels=1)
-        keypt_resized_temp = tf.image.resize_images(keypt_decoded_temp, image_size)
+        keypt_encoded_temp = tf.io.read_file(tf_v2.strings.reduce_join([keypt_root, temp, '_' + '%02d' % (i) + '.png']))
+        keypt_decoded_temp = tf_v2.io.decode_jpeg(keypt_encoded_temp, channels=1)
+        keypt_resized_temp = tf.image.resize(keypt_decoded_temp, image_size)
 
         if i == 0:
             keypt_resized = keypt_resized_temp
         else:
             keypt_resized = tf.concat([keypt_resized, keypt_resized_temp], axis=2)
 
-    mask_encoded = tf.read_file(tf.reduce_join(['/data1/chenyf/mask-anno/', fid]))
-    mask_decoded = tf.image.decode_jpeg(mask_encoded, channels=1)
-    mask_resized = tf.image.resize_images(mask_decoded, image_size)
+    mask_encoded = tf.io.read_file(tf_v2.strings.reduce_join(['/data/chenyifan/mask-anno/', fid]))
+    mask_decoded = tf_v2.io.decode_jpeg(mask_encoded, channels=1)
+    mask_resized = tf.image.resize(mask_decoded, image_size)
 
     # print(1234)
     return image_resized, keypt_resized, mask_resized, fid, pid
+
+
+def fid_to_image_attribute(fid, pid, attr_lookuptable, image_root, image_size):
+    """ Loads and resizes an image given by FID. Pass-through the PID. """
+    # Since there is no symbolic path.join, we just add a '/' to be sure.
+    # if not hasattr(fid_to_image_attribute, "_label"):
+
+
+    image_encoded = tf.io.read_file(tf.reduce_join([image_root, '/', fid]))
+    #image_encoded = tf.read_file(tf.reduce_join([image_root, '/', fid]))
+
+    # tf.image.decode_image doesn't set the shape, not even the dimensionality,
+    # because it potentially loads animated .gif files. Instead, we use either
+    # decode_jpeg or decode_png, each of which can decode both.
+    # Sounds ridiculous, but is true:
+    # https://github.com/tensorflow/tensorflow/issues/9356#issuecomment-309144064
+    image_decoded = tf_v2.image.decode_jpeg(image_encoded, channels=3)
+    image_resized = tf_v2.image.resize(image_decoded, image_size)
+
+    id = tf_v2.strings.substr(fid, 19, 4)
+
+    lookuptable = attr_lookuptable[0]
+    relative_id = lookuptable.lookup(id)
+
+    attribute_label = []
+    for i in range(1,28):
+        attribute_label.append(attr_lookuptable[i].lookup(relative_id))
+
+    return image_resized, attribute_label, fid, pid
+
 
 def split(im, fid, pid):
     split0, split1, split2 = tf.split(im, [3, 17, 1], 2)
