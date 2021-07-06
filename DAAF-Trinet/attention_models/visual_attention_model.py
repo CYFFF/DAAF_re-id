@@ -1,7 +1,9 @@
-import tensorflow as tf
+import tensorflow as tf_v2
+import tensorflow.compat.v1 as tf
+
 from nets import resnet_utils
 
-slim = tf.contrib.slim
+import tf_slim as slim
 
 from nets.resnet_v1 import resnet_v1_50_block_4, resnet_v1_50_block_3_4, resnet_v1_50_block_2_3_4, resnet_arg_scope
 
@@ -9,7 +11,7 @@ _RGB_MEAN = [123.68, 116.78, 103.94]
 
 
 def resnet_block_4(inputs, is_training=True):
-    with tf.contrib.slim.arg_scope(resnet_arg_scope(batch_norm_decay=0.9, weight_decay=0.0)):
+    with slim.arg_scope(resnet_arg_scope(batch_norm_decay=0.9, weight_decay=0.0)):
         _, endpoints = resnet_v1_50_block_4(inputs, num_classes=None, is_training=is_training, global_pool=True)
 
     # endpoints['model_output'] = endpoints['global_pool'] = tf.reduce_mean(
@@ -22,7 +24,7 @@ def resnet_block_4(inputs, is_training=True):
 
 
 def resnet_block_3_4(inputs, is_training=True):
-    with tf.contrib.slim.arg_scope(resnet_arg_scope(batch_norm_decay=0.9, weight_decay=0.0)):
+    with slim.arg_scope(resnet_arg_scope(batch_norm_decay=0.9, weight_decay=0.0)):
         _, endpoints = resnet_v1_50_block_3_4(inputs, num_classes=None, is_training=is_training, global_pool=True)
 
     # endpoints['model_output'] = endpoints['global_pool'] = tf.reduce_mean(
@@ -33,7 +35,7 @@ def resnet_block_3_4(inputs, is_training=True):
 
 
 def resnet_block_2_3_4(inputs, is_training=True):
-    with tf.contrib.slim.arg_scope(resnet_arg_scope(batch_norm_decay=0.9, weight_decay=0.0)):
+    with slim.arg_scope(resnet_arg_scope(batch_norm_decay=0.9, weight_decay=0.0)):
         _, endpoints = resnet_v1_50_block_2_3_4(inputs, num_classes=None, is_training=is_training, global_pool=True)
 
     # endpoints['model_output'] = endpoints['global_pool'] = tf.reduce_mean(
@@ -46,7 +48,7 @@ def resnet_block_2_3_4(inputs, is_training=True):
 def hmnet_layer_0(inputs, kp_num=1):
     depth = slim.utils.last_dimension(inputs.get_shape(), min_rank=4)
     with tf.variable_scope('heatmap_layer_0'):
-        with tf.contrib.slim.arg_scope(resnet_arg_scope()):
+        with slim.arg_scope(resnet_arg_scope()):
             net = slim.conv2d_transpose(inputs, 64, [3, 3], stride=2, padding='SAME', scope='deconv1')
     return net
 
@@ -54,7 +56,7 @@ def hmnet_layer_0(inputs, kp_num=1):
 def hmnet_layer_1(inputs, kp_num=1):
     depth = slim.utils.last_dimension(inputs.get_shape(), min_rank=4)
     with tf.variable_scope('heatmap_layer_1'):
-        with tf.contrib.slim.arg_scope(resnet_arg_scope()):
+        with slim.arg_scope(resnet_arg_scope()):
             net = slim.conv2d_transpose(inputs, 64, [3, 3], stride=2, padding='SAME', scope='deconv2')
     return net
 
@@ -62,7 +64,7 @@ def hmnet_layer_1(inputs, kp_num=1):
 def hmnet_layer_2(inputs, kp_num=1):
     depth = slim.utils.last_dimension(inputs.get_shape(), min_rank=4)
     with tf.variable_scope('heatmap_layer_2'):
-        with tf.contrib.slim.arg_scope(resnet_arg_scope()):
+        with slim.arg_scope(resnet_arg_scope()):
             net = slim.conv2d_transpose(inputs, 64, [3, 3], stride=2, padding='SAME', scope='deconv3')
     return net
 
@@ -70,7 +72,7 @@ def hmnet_layer_2(inputs, kp_num=1):
 def hmnet_layer_3(inputs, kp_num=1):
     depth = slim.utils.last_dimension(inputs.get_shape(), min_rank=4)
     with tf.variable_scope('heatmap_layer_3'):
-        with tf.contrib.slim.arg_scope(resnet_arg_scope()):
+        with slim.arg_scope(resnet_arg_scope()):
             net = slim.conv2d_transpose(inputs, 64, [3, 3], stride=2, padding='SAME', activation_fn=None,
                                         scope='deconv4')
     return net
@@ -79,7 +81,7 @@ def hmnet_layer_3(inputs, kp_num=1):
 def hmnet_layer_4(inputs, kp_num=1):
     depth = slim.utils.last_dimension(inputs.get_shape(), min_rank=4)
     with tf.variable_scope('heatmap_layer_4'):
-        with tf.contrib.slim.arg_scope(resnet_arg_scope()):
+        with slim.arg_scope(resnet_arg_scope()):
             net = slim.conv2d(inputs, kp_num, [1, 1], 1, 'SAME', activation_fn=tf.sigmoid, scope='conv1x1')
     return net
 
@@ -122,14 +124,14 @@ def loss_mutilayer(heatmap_out_layer_0, heatmap_out_layer_1, heatmap_out_layer_2
                                 scope='conv1x1_03')
     heatmap_pre_3 = heatmap_out_layer_4
 
-    tf.summary.image('heatmap_pre_0', tf.gather(heatmap_pre_0, [0], axis=3), 1)
-    tf.summary.image('heatmap_gt_0', tf.gather(heatmap_gt_0, [0], axis=3), 1)
-    tf.summary.image('heatmap_pre_1', tf.gather(heatmap_pre_1, [0], axis=3), 1)
-    tf.summary.image('heatmap_gt_1', tf.gather(heatmap_gt_1, [0], axis=3), 1)
-    tf.summary.image('heatmap_pre_2', tf.gather(heatmap_pre_2, [0], axis=3), 1)
-    tf.summary.image('heatmap_gt_2', tf.gather(heatmap_gt_2, [0], axis=3), 1)
-    tf.summary.image('heatmap_pre_3', tf.gather(heatmap_pre_3, [0], axis=3), 1)
-    tf.summary.image('heatmap_gt_3', tf.gather(heatmap_gt_3, [0], axis=3), 1)
+    # tf.summary.image('heatmap_pre_0', tf.gather(heatmap_pre_0, [0], axis=3), 1)
+    # tf.summary.image('heatmap_gt_0', tf.gather(heatmap_gt_0, [0], axis=3), 1)
+    # tf.summary.image('heatmap_pre_1', tf.gather(heatmap_pre_1, [0], axis=3), 1)
+    # tf.summary.image('heatmap_gt_1', tf.gather(heatmap_gt_1, [0], axis=3), 1)
+    # tf.summary.image('heatmap_pre_2', tf.gather(heatmap_pre_2, [0], axis=3), 1)
+    # tf.summary.image('heatmap_gt_2', tf.gather(heatmap_gt_2, [0], axis=3), 1)
+    # tf.summary.image('heatmap_pre_3', tf.gather(heatmap_pre_3, [0], axis=3), 1)
+    # tf.summary.image('heatmap_gt_3', tf.gather(heatmap_gt_3, [0], axis=3), 1)
 
     loss = tf.reduce_mean(tf.nn.l2_loss(heatmap_pre_3 - heatmap_gt_3))
     return loss

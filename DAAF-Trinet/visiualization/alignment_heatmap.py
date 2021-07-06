@@ -1,5 +1,5 @@
 import tensorflow as tf
-slim = tf.contrib.slim
+import tf_slim as slim
 
 def cal_gradient(network_output, backbone_endpoints):
 

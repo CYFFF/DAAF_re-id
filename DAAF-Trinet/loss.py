@@ -92,8 +92,8 @@ def batch_hard(dists, pids, margin, batch_precision_at_k=None):
     with tf.name_scope("batch_hard"):
         same_identity_mask = tf.equal(tf.expand_dims(pids, axis=1),
                                       tf.expand_dims(pids, axis=0))
-        negative_mask = tf.logical_not(same_identity_mask)
-        positive_mask = tf.logical_xor(same_identity_mask,
+        negative_mask = tf.math.logical_not(same_identity_mask)
+        positive_mask = tf.math.logical_xor(same_identity_mask,
                                        tf.eye(tf.shape(pids)[0], dtype=tf.bool))
 
         furthest_positive = tf.reduce_max(dists*tf.cast(positive_mask, tf.float32), axis=1)

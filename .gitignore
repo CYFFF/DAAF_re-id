@@ -108,3 +108,6 @@ venv.bak/
 
 # model
 *.ckpt
+*.tar.gz
+
+Market-1501_Attribute/*

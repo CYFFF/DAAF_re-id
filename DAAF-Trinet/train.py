@@ -10,10 +10,13 @@ import time
 
 import json
 import numpy as np
-import tensorflow as tf
-from tensorflow.contrib import slim
+import tensorflow.compat.v1 as tf
+import tensorflow as tf_v2
+tf.disable_eager_execution()
+tf.disable_v2_behavior()
+import tf_slim as slim
 import re
-
+import scipy.io as sio
 import common
 import lbtoolbox as lb
 import loss
@@ -95,7 +98,7 @@ def main():
         # Store the passed arguments for later resuming and grepping in a nice
         # and readable format.
         with open(args_file, 'w') as f:
-            json.dump(vars(args), f, ensure_ascii=False, indent=2, sort_keys=True)
+            json.dump(vars(train_config), f, ensure_ascii=False, indent=2, sort_keys=True)
 
     log_file = os.path.join(train_config.experiment_root, "train")
     logging.config.dictConfig(common.get_logging_dict(log_file))
@@ -103,16 +106,16 @@ def main():
 
     # Also show all parameter values at the start, for ease of reading logs.
     log.info('Training using the following parameters:')
-    for key, value in sorted(vars(args).items()):
+    for key, value in sorted(vars(train_config).items()):
         log.info('{}: {}'.format(key, value))
 
     # Check them here, so they are not required when --resume-ing.
     if not train_config.train_set:
-        parser.print_help()
+        # parser.print_help()
         log.error("You did not specify the `train_set` argument!")
         sys.exit(1)
     if not train_config.image_root:
-        parser.print_help()
+        # parser.print_help()
         log.error("You did not specify the required `image_root` argument!")
         sys.exit(1)
 
@@ -143,7 +146,8 @@ def main():
         pid, all_fids=fids, all_pids=pids, batch_k=train_config.batch_k))
 
     # Ungroup/flatten the batches for easy loading of the files.
-    dataset = dataset.apply(tf.contrib.data.unbatch())
+    # dataset = dataset.apply(tf.data.Dataset.unbatch())
+    dataset = tf.data.Dataset.unbatch(dataset)
     # apply(transformation_func) Apply a transformation function to this dataset.
     # apply enables chaining of custom Dataset transformations, which are represented as functions that take one Dataset argument and return a transformed Dataset.
 
@@ -153,35 +157,99 @@ def main():
     # 256，128
     pre_crop_size = (train_config.pre_crop_height, train_config.pre_crop_width)
     # 288，144
-    
+
+    image_root = '/data/chenyifan/Market-1501/bounding_box_train'
+    images = os.listdir(image_root)
+    name_dict = {}
+    index = 0
+    images.sort()
+    for image in images:
+        name = image[0:4]
+        if not name in name_dict:
+            name_dict[name] = index
+            index = index + 1
+
+    key = []
+    value = []
+    for name in name_dict:
+        key.append(name)
+        value.append(name_dict[name])
+
+    keys_tensor = tf.constant(key)
+    vals_tensor = tf.constant(value)
+    lookuptable = tf.lookup.StaticHashTable(
+        tf.lookup.KeyValueTensorInitializer(keys_tensor, vals_tensor),
+        default_value=-1)
+
+    temp = sio.loadmat('attribute/market_attribute.mat')
+    label = temp['market_attribute']['train'][0, 0]
+
+    key_person = []
+    value_attr = {}
+    for i in range(27):
+        value_attr[i] = []
+
+    # age, gender,
+    # backpack, bag, handbag,
+    # hair, hat,
+    # downblack, downblue, downbrown, downgray, downgreen, downpink, downpurple, downwhite, downyellow,
+    # upblack, upblue, upgreen, upgray, uppurple, upred, upwhite, upyellow,
+    # clothes, down, up
+
+    attr_name = ['age', 'gender',
+                 'backpack', 'bag', 'handbag',
+                 'hair', 'hat',
+                 'downblack', 'downblue', 'downbrown', 'downgray',
+                 'downgreen', 'downpink', 'downpurple', 'downwhite', 'downyellow',
+                 'upblack', 'upblue', 'upgreen', 'upgray',
+                 'uppurple', 'upred', 'upwhite', 'upyellow',
+                 'clothes', 'down', 'up']
+
+    for i in range(751):
+        key_person.append(i)
+        for j in range(27):
+            value_attr[j].append(label[attr_name[j]][0, 0][0, i] - 1)
+
+    keys_person_tensor = tf.constant(key_person)
+
+    attr_lookuptable = []
+    attr_lookuptable.append(lookuptable)
+
+    value_attr_tensor = {}
+    for i in range(27):
+        value_attr_tensor[i] = tf.constant(value_attr[i])
+        attr_lookuptable.append(tf.lookup.StaticHashTable(
+            tf.lookup.KeyValueTensorInitializer(keys_person_tensor, value_attr_tensor[i]),
+            default_value=-1))
+
     dataset = dataset.map(
-        lambda fid, pid: common.fid_to_image_label(
-            fid, pid, image_root=train_config.image_root,
+        lambda fid, pid: common.fid_to_image_attribute(
+            fid, pid, attr_lookuptable, image_root=train_config.image_root,
             image_size=pre_crop_size if train_config.crop_augment else net_input_size),
         num_parallel_calls=train_config.loading_threads)
 
 ###########################################################################################
-    dataset = dataset.map(
-        lambda im, keypt, mask, fid, pid: (tf.concat([im, keypt, mask], 2), fid, pid))
+    # dataset = dataset.map(
+    #     lambda im, attr, fid, pid: (tf.concat([im, keypt, mask], 2), fid, pid))
 
 ###########################################################################################
     
     # Augment the data if specified by the arguments.
     if train_config.flip_augment:
         dataset = dataset.map(
-            lambda im, fid, pid: (tf.image.random_flip_left_right(im), fid, pid))
+            lambda im, attr, fid, pid: (tf.image.random_flip_left_right(im), attr, fid, pid))
 
 
     # net_input_size_aug = net_input_size + (4,)
     if train_config.crop_augment:
         dataset = dataset.map(
-            lambda im, fid, pid: (tf.random_crop(im, net_input_size + (21,)), fid, pid))
+            lambda im, attr, fid, pid: (tf.random_crop(im, net_input_size + (3,)), attr, fid, pid))
     # net_input_size + (21,) = (256, 128, 21)
     # split
 
 #############################################################################################
-    dataset = dataset.map(
-        lambda im, fid, pid: (common.split(im, fid, pid)))
+    # dataset = dataset.map(
+    #     lambda im, fid, pid: (common.split(im, fid, pid)))
 
 #############################################################################################
 
@@ -194,7 +262,9 @@ def main():
     # prefetch(buffer_size)   Creates a Dataset that prefetches elements from this dataset.
 
     # Since we repeat the data infinitely, we only need a one-shot iterator.
-    images, keypts, masks, fids, pids = dataset.make_one_shot_iterator().get_next()
+    # images, keypts, masks, fids, pids = dataset.make_one_shot_iterator().get_next()
+    iterator = dataset.make_initializable_iterator()
+    images, attributes, fids, pids =  iterator.get_next()
     # tf.summary.image('image',images,10)
 
     # Create the model and an embedding head.
@@ -206,26 +276,26 @@ def main():
     # prefix.
 
     endpoints, body_prefix = model.endpoints(images, is_training=True)
-    heatmap_in = endpoints[train_config.model_name + '/block4']
+    # heatmap_in = endpoints[train_config.model_name + '/block4']
     # resnet_block_4_out = heatmap.resnet_block_4(heatmap_in)
     # resnet_block_3_4_out = heatmap.resnet_block_3_4(heatmap_in)
     # resnet_block_2_3_4_out = heatmap.resnet_block_2_3_4(heatmap_in)
     # head for heatmap
-    with tf.name_scope('heatmap'):
-        # heatmap_in = endpoints['model_output']
-        # heatmap_out_layer_0 = heatmap.hmnet_layer_0(resnet_block_4_out, 1)
-        # heatmap_out_layer_0 = heatmap.hmnet_layer_0(resnet_block_3_4_out, 1)
-        # heatmap_out_layer_0 = heatmap.hmnet_layer_0(resnet_block_2_3_4_out, 1)
-        heatmap_out_layer_0 = VAC.hmnet_layer_0(heatmap_in[:, :, :, 1020:2048], 1)
-        heatmap_out_layer_1 = VAC.hmnet_layer_1(heatmap_out_layer_0, 1)
-        heatmap_out_layer_2 = VAC.hmnet_layer_2(heatmap_out_layer_1, 1)
-        heatmap_out_layer_3 = VAC.hmnet_layer_3(heatmap_out_layer_2, 1)
-        heatmap_out_layer_4 = VAC.hmnet_layer_4(heatmap_out_layer_3, 1)
-        heatmap_out = heatmap_out_layer_4
-        heatmap_loss = VAC.loss_mutilayer(heatmap_out_layer_0, heatmap_out_layer_1, heatmap_out_layer_2,
-                                              heatmap_out_layer_3, heatmap_out_layer_4, masks, net_input_size)
-        # heatmap_loss = heatmap.loss(heatmap_out, labels, net_input_size)
-        # heatmap_loss_mean = heatmap_loss
+    # with tf.name_scope('heatmap'):
+    #     # heatmap_in = endpoints['model_output']
+    #     # heatmap_out_layer_0 = heatmap.hmnet_layer_0(resnet_block_4_out, 1)
+    #     # heatmap_out_layer_0 = heatmap.hmnet_layer_0(resnet_block_3_4_out, 1)
+    #     # heatmap_out_layer_0 = heatmap.hmnet_layer_0(resnet_block_2_3_4_out, 1)
+    #     heatmap_out_layer_0 = VAC.hmnet_layer_0(heatmap_in[:, :, :, 1020:2048], 1)
+    #     heatmap_out_layer_1 = VAC.hmnet_layer_1(heatmap_out_layer_0, 1)
+    #     heatmap_out_layer_2 = VAC.hmnet_layer_2(heatmap_out_layer_1, 1)
+    #     heatmap_out_layer_3 = VAC.hmnet_layer_3(heatmap_out_layer_2, 1)
+    #     heatmap_out_layer_4 = VAC.hmnet_layer_4(heatmap_out_layer_3, 1)
+    #     heatmap_out = heatmap_out_layer_4
+    #     heatmap_loss = VAC.loss_mutilayer(heatmap_out_layer_0, heatmap_out_layer_1, heatmap_out_layer_2,
+    #                                           heatmap_out_layer_3, heatmap_out_layer_4, masks, net_input_size)
+    #     # heatmap_loss = heatmap.loss(heatmap_out, labels, net_input_size)
+    #     # heatmap_loss_mean = heatmap_loss
 
     with tf.name_scope('head'):
         # heatmap_sum = tf.reduce_sum(heatmap_out, axis=3)
@@ -234,50 +304,86 @@ def main():
         # endpoints[args.model_name + '/block4'] = featuremap_tmp
         endpoints = head.head(endpoints, train_config.embedding_dim, is_training=True)
 
-        tf.summary.image('feature_map', tf.expand_dims(endpoints[train_config.model_name + '/block4'][:, :, :, 0], axis=3), 4)
+        # tf.summary.image('feature_map', tf.expand_dims(endpoints[train_config.model_name + '/block4'][:, :, :, 0], axis=3), 4)
 
 
-    with tf.name_scope('keypoints_pre'):
-        keypoints_pre_in = endpoints[train_config.model_name + '/block4']
-        # keypoints_pre_in_0 = keypoints_pre_in[:, :, :, 0:256]
-        # keypoints_pre_in_1 = keypoints_pre_in[:, :, :, 256:512]
-        # keypoints_pre_in_2 = keypoints_pre_in[:, :, :, 512:768]
-        # keypoints_pre_in_3 = keypoints_pre_in[:, :, :, 768:1024]
-        keypoints_pre_in_0 = keypoints_pre_in[:, :, :, 0:170]
-        keypoints_pre_in_1 = keypoints_pre_in[:, :, :, 170:340]
-        keypoints_pre_in_2 = keypoints_pre_in[:, :, :, 340:510]
-        keypoints_pre_in_3 = keypoints_pre_in[:, :, :, 510:680]
-        keypoints_pre_in_4 = keypoints_pre_in[:, :, :, 680:850]
-        keypoints_pre_in_5 = keypoints_pre_in[:, :, :, 850:1020]
+    # with tf.name_scope('keypoints_pre'):
+    #     keypoints_pre_in = endpoints[train_config.model_name + '/block4']
+    #     # keypoints_pre_in_0 = keypoints_pre_in[:, :, :, 0:256]
+    #     # keypoints_pre_in_1 = keypoints_pre_in[:, :, :, 256:512]
+    #     # keypoints_pre_in_2 = keypoints_pre_in[:, :, :, 512:768]
+    #     # keypoints_pre_in_3 = keypoints_pre_in[:, :, :, 768:1024]
+    #     keypoints_pre_in_0 = keypoints_pre_in[:, :, :, 0:340]
+    #     keypoints_pre_in_1 = keypoints_pre_in[:, :, :, 340:680]
+    #     keypoints_pre_in_2 = keypoints_pre_in[:, :, :, 680:1020]
+    #     keypoints_pre_in_3 = keypoints_pre_in[:, :, :, 1020:1360]
+    #     keypoints_pre_in_4 = keypoints_pre_in[:, :, :, 1360:1700]
+    #     keypoints_pre_in_5 = keypoints_pre_in[:, :, :, 1700:2040]
+    #
+    #     labels = tf.image.resize_images(keypts, [128, 64])
+    #     # keypoints_gt_0 = tf.concat([labels[:, :, :, 0:5], labels[:, :, :, 14:15], labels[:, :, :, 15:16], labels[:, :, :, 16:17], labels[:, :, :, 17:18]], 3)
+    #     # keypoints_gt_1 = tf.concat([labels[:, :, :, 1:2], labels[:, :, :, 2:3], labels[:, :, :, 3:4], labels[:, :, :, 5:6]], 3)
+    #     # keypoints_gt_2 = tf.concat([labels[:, :, :, 4:5], labels[:, :, :, 7:8], labels[:, :, :, 8:9], labels[:, :, :, 11:12]], 3)
+    #     # keypoints_gt_3 = tf.concat([labels[:, :, :, 9:10], labels[:, :, :, 10:11], labels[:, :, :, 12:13], labels[:, :, :, 13:14]], 3)
+    #
+    #     keypoints_gt_0 = labels[:, :, :, 0:5]
+    #     keypoints_gt_1 = labels[:, :, :, 5:7]
+    #     keypoints_gt_2 = labels[:, :, :, 7:9]
+    #     keypoints_gt_3 = labels[:, :, :, 9:13]
+    #     keypoints_gt_4 = labels[:, :, :, 13:15]
+    #     keypoints_gt_5 = labels[:, :, :, 15:17]
+    #
+    #     keypoints_pre_0 = PAC.tran_conv_0(keypoints_pre_in_0, kp_num=5)
+    #     keypoints_pre_1 = PAC.tran_conv_1(keypoints_pre_in_1, kp_num=2)
+    #     keypoints_pre_2 = PAC.tran_conv_2(keypoints_pre_in_2, kp_num=2)
+    #     keypoints_pre_3 = PAC.tran_conv_3(keypoints_pre_in_3, kp_num=4)
+    #     keypoints_pre_4 = PAC.tran_conv_4(keypoints_pre_in_4, kp_num=2)
+    #     keypoints_pre_5 = PAC.tran_conv_5(keypoints_pre_in_5, kp_num=2)
+    #
+    #     keypoints_loss_0 = PAC.keypoints_loss(keypoints_pre_0, keypoints_gt_0)
+    #     keypoints_loss_1 = PAC.keypoints_loss(keypoints_pre_1, keypoints_gt_1)
+    #     keypoints_loss_2 = PAC.keypoints_loss(keypoints_pre_2, keypoints_gt_2)
+    #     keypoints_loss_3 = PAC.keypoints_loss(keypoints_pre_3, keypoints_gt_3)
+    #     keypoints_loss_4 = PAC.keypoints_loss(keypoints_pre_4, keypoints_gt_4)
+    #     keypoints_loss_5 = PAC.keypoints_loss(keypoints_pre_5, keypoints_gt_5)
+    #
+    #     keypoints_loss = 5/17*keypoints_loss_0 + 2/17*keypoints_loss_1 + 2/17*keypoints_loss_2 + 4/17*keypoints_loss_3 + 2/17*keypoints_loss_4 + 2/17*keypoints_loss_5
 
-        labels = tf.image.resize_images(keypts, [128, 64])
-        # keypoints_gt_0 = tf.concat([labels[:, :, :, 0:5], labels[:, :, :, 14:15], labels[:, :, :, 15:16], labels[:, :, :, 16:17], labels[:, :, :, 17:18]], 3)
-        # keypoints_gt_1 = tf.concat([labels[:, :, :, 1:2], labels[:, :, :, 2:3], labels[:, :, :, 3:4], labels[:, :, :, 5:6]], 3)
-        # keypoints_gt_2 = tf.concat([labels[:, :, :, 4:5], labels[:, :, :, 7:8], labels[:, :, :, 8:9], labels[:, :, :, 11:12]], 3)
-        # keypoints_gt_3 = tf.concat([labels[:, :, :, 9:10], labels[:, :, :, 10:11], labels[:, :, :, 12:13], labels[:, :, :, 13:14]], 3)
 
-        keypoints_gt_0 = labels[:, :, :, 0:5]
-        keypoints_gt_1 = labels[:, :, :, 5:7]
-        keypoints_gt_2 = labels[:, :, :, 7:9]
-        keypoints_gt_3 = labels[:, :, :, 9:13]
-        keypoints_gt_4 = labels[:, :, :, 13:15]
-        keypoints_gt_5 = labels[:, :, :, 15:17]
+    with tf.name_scope('attribute_pre'):
+        attribute_pre_in = endpoints[train_config.model_name + '/block4']
 
-        keypoints_pre_0 = PAC.tran_conv_0(keypoints_pre_in, kp_num=5)
-        keypoints_pre_1 = PAC.tran_conv_1(keypoints_pre_in, kp_num=2)
-        keypoints_pre_2 = PAC.tran_conv_2(keypoints_pre_in, kp_num=2)
-        keypoints_pre_3 = PAC.tran_conv_3(keypoints_pre_in, kp_num=4)
-        keypoints_pre_4 = PAC.tran_conv_4(keypoints_pre_in, kp_num=2)
-        keypoints_pre_5 = PAC.tran_conv_5(keypoints_pre_in, kp_num=2)
+        attribute_pre_in_0 = attribute_pre_in[:, :, :, 0:256]
+        attribute_pre_in_1 = attribute_pre_in[:, :, :, 256:512]
+        attribute_pre_in_2 = attribute_pre_in[:, :, :, 512:768]
+        attribute_pre_in_3 = attribute_pre_in[:, :, :, 768:1024]
+        attribute_pre_in_4 = attribute_pre_in[:, :, :, 1024:1280]
+        attribute_pre_in_5 = attribute_pre_in[:, :, :, 1280:1536]
+        attribute_pre_in_6 = attribute_pre_in[:, :, :, 1536:1792]
+        attribute_pre_in_7 = attribute_pre_in[:, :, :, 1792:2048]
 
-        keypoints_loss_0 = PAC.keypoints_loss(keypoints_pre_0, keypoints_gt_0)
-        keypoints_loss_1 = PAC.keypoints_loss(keypoints_pre_1, keypoints_gt_1)
-        keypoints_loss_2 = PAC.keypoints_loss(keypoints_pre_2, keypoints_gt_2)
-        keypoints_loss_3 = PAC.keypoints_loss(keypoints_pre_3, keypoints_gt_3)
-        keypoints_loss_4 = PAC.keypoints_loss(keypoints_pre_4, keypoints_gt_4)
-        keypoints_loss_5 = PAC.keypoints_loss(keypoints_pre_5, keypoints_gt_5)
+        attributes_gt_0 = attributes[:, 0:2]
+        attributes_gt_1 = attributes[:, 2:5]
+        attributes_gt_2 = attributes[:, 5:7]
+        attributes_gt_3 = attributes[:, 7:11]
+        attributes_gt_4 = attributes[:, 11:16]
+        attributes_gt_5 = attributes[:, 16:20]
+        attributes_gt_6 = attributes[:, 20:24]
+        attributes_gt_7 = attributes[:, 24:27]
 
-        keypoints_loss = 5/17*keypoints_loss_0 + 2/17*keypoints_loss_1 + 2/17*keypoints_loss_2 + 4/17*keypoints_loss_3 + 2/17*keypoints_loss_4 + 2/17*keypoints_loss_5
+        attributes_loss_0 = PAC.attr_conv_fc_loss_0(attribute_pre_in_0, attributes_gt_0, attr_num=2)
+        attributes_loss_1 = PAC.attr_conv_fc_loss_1(attribute_pre_in_1, attributes_gt_1, attr_num=3)
+        attributes_loss_2 = PAC.attr_conv_fc_loss_2(attribute_pre_in_2, attributes_gt_2, attr_num=2)
+        attributes_loss_3 = PAC.attr_conv_fc_loss_3(attribute_pre_in_3, attributes_gt_3, attr_num=9)
+        attributes_loss_4 = PAC.attr_conv_fc_loss_4(attribute_pre_in_4, attributes_gt_4, attr_num=8)
+        attributes_loss_5 = PAC.attr_conv_fc_loss_5(attribute_pre_in_5, attributes_gt_5, attr_num=3)
+        attributes_loss_6 = PAC.attr_conv_fc_loss_6(attribute_pre_in_6, attributes_gt_6, attr_num=3)
+        attributes_loss_7 = PAC.attr_conv_fc_loss_7(attribute_pre_in_7, attributes_gt_7, attr_num=3)
+
+        attributes_loss = 2/27*attributes_loss_0 + 3/27*attributes_loss_1 + 2/27*attributes_loss_2 +\
+                          4/27*attributes_loss_3 + 5/27*attributes_loss_4 + 4/27*attributes_loss_5 +\
+                          4/27*attributes_loss_6 + 3/27*attributes_loss_7
+
 
 
     # Create the loss in two steps:
@@ -293,8 +399,9 @@ def main():
     
     scale_rate_0 = 1E-7
     scale_rate_1 = 6E-8
-    total_loss = loss_mean + keypoints_loss*scale_rate_0 + heatmap_loss*scale_rate_1
+    # total_loss = loss_mean + keypoints_loss*scale_rate_0 + heatmap_loss*scale_rate_1
     # total_loss = loss_mean + keypoints_loss * scale_rate_0
+    total_loss = loss_mean + attributes_loss * scale_rate_0
     # total_loss = loss_mean
 
     # Some logging for tensorboard.
@@ -302,15 +409,15 @@ def main():
     tf.summary.scalar('loss', loss_mean)
 ############################################################################################
     # tf.summary.histogram('hm_loss_distribution', heatmap_loss)
-    tf.summary.scalar('keypt_loss_0', keypoints_loss_0)
-    tf.summary.scalar('keypt_loss_1', keypoints_loss_1)
-    tf.summary.scalar('keypt_loss_2', keypoints_loss_2)
-    tf.summary.scalar('keypt_loss_3', keypoints_loss_3)
-    tf.summary.scalar('keypt_loss_all', keypoints_loss)
+    tf.summary.scalar('attribute_loss_0', attributes_loss_0)
+    # tf.summary.scalar('attribute_loss_1', attributes_loss_1)
+    # tf.summary.scalar('attribute_loss_2', attributes_loss_2)
+    # tf.summary.scalar('attribute_loss_3', attributes_loss_3)
+    tf.summary.scalar('attribute_loss_all', attributes_loss)
 ############################################################################################
     tf.summary.scalar('total_loss', total_loss)
     tf.summary.scalar('batch_top1', train_top1)
-    tf.summary.scalar('batch_prec_at_{}'.format(args.batch_k-1), prec_at_k)
+    tf.summary.scalar('batch_prec_at_{}'.format(train_config.batch_k-1), prec_at_k)
     tf.summary.scalar('active_count', num_active)
     tf.summary.histogram('embedding_dists', dists)
     tf.summary.histogram('embedding_pos_dists', pos_dists)
@@ -321,10 +428,10 @@ def main():
     # Create the mem-mapped arrays in which we'll log all training detail in
     # addition to tensorboard, because tensorboard is annoying for detailed
     # inspection and actually discards data in histogram summaries.
-    if args.detailed_logs:
+    if train_config.detailed_logs:
         log_embs = lb.create_or_resize_dat(
             os.path.join(train_config.experiment_root, 'embeddings'),
-            dtype=np.float32, shape=(train_config.train_iterations, batch_size, args.embedding_dim))
+            dtype=np.float32, shape=(train_config.train_iterations, batch_size, train_config.embedding_dim))
         log_loss = lb.create_or_resize_dat(
             os.path.join(train_config.experiment_root, 'losses'),
             dtype=np.float32, shape=(train_config.train_iterations, batch_size))
@@ -348,12 +455,13 @@ def main():
             train_config.train_iterations - train_config.decay_start_iteration, 0.001)
     else:
         learning_rate = train_config.learning_rate
-    tf.summary.scalar('learning_rate', learning_rate)
+    # tf.summary.scalar('learning_rate', learning_rate)
     optimizer = tf.train.AdamOptimizer(learning_rate)
     # Feel free to try others!
     # optimizer = tf.train.AdadeltaOptimizer(learning_rate)
 
     # Update_ops are used to update batchnorm stats.
+
     with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
     #    train_op = optimizer.minimize(loss_mean, global_step=global_step)
         train_op = optimizer.minimize(total_loss, global_step=global_step)
@@ -364,17 +472,23 @@ def main():
     checkpoint_saver = tf.train.Saver(max_to_keep=0)
 
 
-    gpu_options = tf.GPUOptions(allow_growth=True)
-    with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
+    # gpu_options = tf.GPUOptions(allow_growth=True)
+    # with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
+    config = tf.ConfigProto()
+    # config.gpu_options.allow_growth = True
+    config.gpu_options.per_process_gpu_memory_fraction = 0.3
+    with tf.Session(config=config) as sess:
         if train_config.resume:
             # In case we're resuming, simply load the full checkpoint to init.
-            last_checkpoint = tf.train.latest_checkpoint(args.experiment_root)
+            last_checkpoint = tf.train.latest_checkpoint(train_config.experiment_root)
             log.info('Restoring from checkpoint: {}'.format(last_checkpoint))
             checkpoint_saver.restore(sess, last_checkpoint)
         else:
             # But if we're starting from scratch, we may need to load some
             # variables from the pre-trained weights, and random init others.
             sess.run(tf.global_variables_initializer())
+            sess.run(tf.tables_initializer())
+            sess.run(iterator.initializer)
             if train_config.initial_checkpoint is not None:
                 saver = tf.train.Saver(model_variables, write_version=tf.train.SaverDef.V1)
                 
